@@ -8,7 +8,7 @@ on:
 
 permissions:
   id-token: write
-  contents: write
+  contents: read
 
 env:
   AWS_REGION: us-east-1
@@ -85,6 +85,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -95,21 +100,15 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Update Terraform image variables
+      - name: Terraform init
+        run: terraform init -input=false -backend=false
+
+      - name: Terraform apply
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          TF_VAR_database_password: ${{ github.ref_name == 'development' && secrets.DEV_DATABASE_PASSWORD || github.ref_name == 'staging' && secrets.STAGING_DATABASE_PASSWORD || secrets.PROD_DATABASE_PASSWORD }}
+          TF_VAR_database_password: ${{ secrets.DEV_DATABASE_PASSWORD }}
         run: |
-          cat > terraform.tfvars <<EOF
-          frontend_image = "$ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest"
-          backend_image = "$ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest"
-          database_password = "${TF_VAR_database_password}"
-          EOF
-
-      - name: Commit updated tfvars
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add terraform.tfvars
-          git commit -m "chore: update ECR image tags" || echo "No changes to commit"
-          git push
+          terraform apply -auto-approve -input=false -var-file=environments/development.tfvars \
+            -var "frontend_image=$ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest" \
+            -var "backend_image=$ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest" \
+            -var "database_password=${TF_VAR_database_password}"
