@@ -52,10 +52,34 @@ variable "frontend_ecr_repository_name" {
   default     = "fargate-ecs-app-frontend"
 }
 
+variable "create_ecr_repositories" {
+  description = "Whether Terraform should create ECR repositories"
+  type        = bool
+  default     = false
+}
+
 variable "backend_ecr_repository_name" {
   description = "Name of the backend ECR repository"
   type        = string
   default     = "fargate-ecs-app-backend"
+}
+
+variable "existing_ecs_cluster_name" {
+  description = "Existing ECS cluster name to use. Leave empty to let Terraform create one."
+  type        = string
+  default     = ""
+}
+
+variable "frontend_execution_role_arn" {
+  description = "Existing IAM role ARN for frontend ECS task execution. Leave empty to create one."
+  type        = string
+  default     = ""
+}
+
+variable "backend_execution_role_arn" {
+  description = "Existing IAM role ARN for backend ECS task execution. Leave empty to create one."
+  type        = string
+  default     = ""
 }
 
 variable "database_name" {

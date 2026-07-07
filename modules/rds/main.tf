@@ -13,8 +13,8 @@ resource "aws_security_group" "db" {
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port       = 5432
-    to_port         = 5432
+    from_port       = 3306
+    to_port         = 3306
     protocol        = "tcp"
     security_groups = var.allowed_security_group_ids
   }
@@ -34,7 +34,7 @@ resource "aws_security_group" "db" {
 resource "aws_db_instance" "this" {
   identifier              = var.name
   engine                  = "mysql"
-  engine_version          = "8.0.35"
+  engine_version          = "8.0"
   instance_class          = "db.t3.micro"
   allocated_storage       = 20
   storage_type            = "gp2"

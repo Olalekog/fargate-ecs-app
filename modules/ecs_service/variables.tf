@@ -91,3 +91,21 @@ variable "alb_internal" {
   type        = bool
   default     = false
 }
+
+variable "execution_role_arn" {
+  description = "Existing IAM role ARN to use for ECS task execution. Leave empty to create one."
+  type        = string
+  default     = ""
+}
+
+variable "create_log_group" {
+  description = "Whether to create a CloudWatch log group for this service"
+  type        = bool
+  default     = true
+}
+
+variable "log_group_name" {
+  description = "CloudWatch log group name. Leave empty to use default naming."
+  type        = string
+  default     = ""
+}

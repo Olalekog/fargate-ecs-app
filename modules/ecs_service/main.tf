@@ -1,4 +1,5 @@
 resource "aws_iam_role" "execution" {
+  count = var.execution_role_arn == "" ? 1 : 0
   name = "${var.service_name}-ecs-execution-role"
 
   assume_role_policy = jsonencode({
@@ -16,12 +17,14 @@ resource "aws_iam_role" "execution" {
 }
 
 resource "aws_iam_role_policy_attachment" "execution" {
-  role       = aws_iam_role.execution.name
+  count      = var.execution_role_arn == "" ? 1 : 0
+  role       = aws_iam_role.execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 resource "aws_cloudwatch_log_group" "this" {
-  name              = "/ecs/${var.service_name}"
+  count             = var.create_log_group ? 1 : 0
+  name              = local.resolved_log_group_name
   retention_in_days = 7
 }
 
@@ -143,6 +146,9 @@ resource "aws_lb_listener" "http" {
 }
 
 locals {
+  execution_role_arn = var.execution_role_arn != "" ? var.execution_role_arn : aws_iam_role.execution[0].arn
+  resolved_log_group_name = var.log_group_name != "" ? var.log_group_name : "/ecs/${var.cluster_name}/${var.service_name}"
+
   container_environment_entries = [for key, value in var.container_environment : {
     name  = key
     value = value
@@ -164,7 +170,7 @@ locals {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.this.name
+          awslogs-group         = local.resolved_log_group_name
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = var.service_name
         }
@@ -179,8 +185,8 @@ resource "aws_ecs_task_definition" "this" {
   network_mode             = "awsvpc"
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.execution.arn
+  execution_role_arn       = local.execution_role_arn
+  task_role_arn            = local.execution_role_arn
   container_definitions    = local.container_definition
 }
 
