@@ -12,8 +12,8 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  FRONTEND_REPOSITORY: fargate-ecs-app-frontend
-  BACKEND_REPOSITORY: fargate-ecs-app-backend
+  FRONTEND_REPOSITORY: ${{ vars.FRONTEND_ECR_REPOSITORY || 'fargate-ecs-app-frontend' }}
+  BACKEND_REPOSITORY: ${{ vars.BACKEND_ECR_REPOSITORY || 'fargate-ecs-app-backend' }}
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
@@ -103,6 +103,11 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Create ECR repositories if missing
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.FRONTEND_REPOSITORY }} >/dev/null 2>&1 || aws ecr create-repository --repository-name ${{ env.FRONTEND_REPOSITORY }} >/dev/null
+          aws ecr describe-repositories --repository-names ${{ env.BACKEND_REPOSITORY }} >/dev/null 2>&1 || aws ecr create-repository --repository-name ${{ env.BACKEND_REPOSITORY }} >/dev/null
+
       - name: Push frontend image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -119,7 +124,7 @@ jobs:
 
       - name: Update Terraform image variables
         env:
-          TF_VAR_database_password: ${{ secrets.DEV_DATABASE_PASSWORD }}
+          TF_VAR_database_password: ${{ github.ref_name == 'development' && secrets.DEV_DATABASE_PASSWORD || github.ref_name == 'staging' && secrets.STAGING_DATABASE_PASSWORD || secrets.PROD_DATABASE_PASSWORD }}
         run: |
           cat > terraform.tfvars <<EOF
           frontend_image = "${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_REPOSITORY }}:latest"
