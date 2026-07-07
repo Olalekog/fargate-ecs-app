@@ -8,7 +8,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 env:
   AWS_REGION: us-east-1
@@ -25,6 +25,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -35,31 +38,30 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build frontend image
+      - name: Create ECR repositories if missing
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.FRONTEND_REPOSITORY }} >/dev/null 2>&1 || aws ecr create-repository --repository-name ${{ env.FRONTEND_REPOSITORY }} >/dev/null
+          aws ecr describe-repositories --repository-names ${{ env.BACKEND_REPOSITORY }} >/dev/null 2>&1 || aws ecr create-repository --repository-name ${{ env.BACKEND_REPOSITORY }} >/dev/null
+
+      - name: Build and push frontend image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+          docker buildx build --platform linux/amd64 \
+            --push \
+            -t $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }} \
             -t $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest \
             ./frontend
-          docker save $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }} > frontend-image.tar
 
-      - name: Build backend image
+      - name: Build and push backend image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+          docker buildx build --platform linux/amd64 \
+            --push \
+            -t $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }} \
             -t $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest \
             ./backend
-          docker save $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }} > backend-image.tar
-
-      - name: Upload image artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-images
-          path: |
-            frontend-image.tar
-            backend-image.tar
 
   test:
     needs: build
@@ -89,46 +91,18 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 
-      - name: Download image artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-images
-
-      - name: Load image artifacts
-        run: |
-          docker load < frontend-image.tar
-          docker load < backend-image.tar
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Create ECR repositories if missing
-        run: |
-          aws ecr describe-repositories --repository-names ${{ env.FRONTEND_REPOSITORY }} >/dev/null 2>&1 || aws ecr create-repository --repository-name ${{ env.FRONTEND_REPOSITORY }} >/dev/null
-          aws ecr describe-repositories --repository-names ${{ env.BACKEND_REPOSITORY }} >/dev/null 2>&1 || aws ecr create-repository --repository-name ${{ env.BACKEND_REPOSITORY }} >/dev/null
-
-      - name: Push frontend image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker push $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          docker push $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest
-
-      - name: Push backend image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker push $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          docker push $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest
-
       - name: Update Terraform image variables
         env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           TF_VAR_database_password: ${{ github.ref_name == 'development' && secrets.DEV_DATABASE_PASSWORD || github.ref_name == 'staging' && secrets.STAGING_DATABASE_PASSWORD || secrets.PROD_DATABASE_PASSWORD }}
         run: |
           cat > terraform.tfvars <<EOF
-          frontend_image = "${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_REPOSITORY }}:latest"
-          backend_image = "${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_REPOSITORY }}:latest"
+          frontend_image = "$ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest"
+          backend_image = "$ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest"
           database_password = "${TF_VAR_database_password}"
           EOF
 
