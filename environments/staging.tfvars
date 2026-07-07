@@ -1,0 +1,13 @@
+region                       = "us-east-1"
+project_name                 = "fargate-ecs-app-staging"
+availability_zones           = ["us-east-1a", "us-east-1b"]
+vpc_cidr                     = "10.20.0.0/16"
+public_subnet_cidrs          = ["10.20.1.0/24", "10.20.2.0/24"]
+private_subnet_cidrs         = ["10.20.10.0/24", "10.20.20.0/24"]
+frontend_ecr_repository_name = "fargate-ecs-app-frontend"
+backend_ecr_repository_name  = "fargate-ecs-app-backend"
+frontend_image               = ""
+backend_image                = ""
+database_name                = "tododb"
+database_username            = "admin"
+database_password            = ""

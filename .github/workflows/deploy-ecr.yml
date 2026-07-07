@@ -1,0 +1,116 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches:
+      - development
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  FRONTEND_REPOSITORY: fargate-ecs-app-frontend
+  BACKEND_REPOSITORY: fargate-ecs-app-backend
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/development'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+            -t $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest \
+            ./frontend
+
+      - name: Build backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+            -t $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest \
+            ./backend
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run basic validation checks
+        run: |
+          echo "Running tests for frontend and backend"
+          test -f frontend/package.json
+          test -f backend/requirements.txt
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/development'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker push $ECR_REGISTRY/${{ env.FRONTEND_REPOSITORY }}:latest
+
+      - name: Push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker push $ECR_REGISTRY/${{ env.BACKEND_REPOSITORY }}:latest
+
+      - name: Update Terraform image variables
+        env:
+          TF_VAR_database_password: ${{ secrets.DEV_DATABASE_PASSWORD }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          frontend_image = "${{ steps.login-ecr.outputs.registry }}/${{ env.FRONTEND_REPOSITORY }}:latest"
+          backend_image = "${{ steps.login-ecr.outputs.registry }}/${{ env.BACKEND_REPOSITORY }}:latest"
+          database_password = "${TF_VAR_database_password}"
+          EOF
+
+      - name: Commit updated tfvars
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add terraform.tfvars
+          git commit -m "chore: update ECR image tags" || echo "No changes to commit"
+          git push

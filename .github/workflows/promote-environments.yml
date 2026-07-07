@@ -1,0 +1,51 @@
+name: Promote Environments
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - production
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-promotion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR source and target
+        run: |
+          echo "PR from ${{ github.head_ref }} to ${{ github.base_ref }}"
+          if [ "${{ github.base_ref }}" = "staging" ] && [ "${{ github.head_ref }}" != "development" ]; then
+            echo "Only pull requests from development to staging are allowed."
+            exit 1
+          fi
+          if [ "${{ github.base_ref }}" = "production" ] && [ "${{ github.head_ref }}" != "staging" ]; then
+            echo "Only pull requests from staging to production are allowed."
+            exit 1
+          fi
+
+  staging-approval:
+    if: github.base_ref == 'staging' || github.ref_name == 'staging'
+    needs: validate-promotion
+    environment:
+      name: staging
+      url: https://staging.example.com
+    runs-on: ubuntu-latest
+    steps:
+      - name: Await staging approval
+        run: echo "Manual approval required for staging deployment"
+
+  production-approval:
+    if: github.base_ref == 'production' || github.ref_name == 'production'
+    needs: validate-promotion
+    environment:
+      name: production
+      url: https://production.example.com
+    runs-on: ubuntu-latest
+    steps:
+      - name: Await production approval
+        run: echo "Manual approval required for production deployment"
